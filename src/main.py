@@ -1,5 +1,5 @@
 import requests
-import json, config
+import configparser
 from requests_oauthlib import OAuth1Session
 from bs4 import BeautifulSoup
 from pytz import timezone
@@ -8,11 +8,12 @@ import time
 import schedule
 import re
 
-# URL = "https://www.gogojungle.co.jp/systemtrade/fx/14352"
-URL = "https://www.gogojungle.co.jp/systemtrade/fx/15802"
+# 初期設定
 numberOfPositions = 0
 now = datetime.now(timezone("UTC"))
 previousJobTime = str(now.month) + "/" + str(now.day) + " " + str(now.hour) + ":" + str(now.minute)
+config = configparser.ConfigParser()
+config.read("./config.ini", "UTF-8")
 
 class ForwardTest():
     def __init__(self):
@@ -36,7 +37,7 @@ class ForwardTest():
     def setTrade(self, data):
         pattern = r"[0-9]{2}\/[0-9]{2}\s[0-9]{2}:[0-9]{2}"
         match = re.compile(pattern).match(data[0].string)
-        self.trade[0] = match.group()[0] if match is not None else match
+        self.trade[0] = match.group() if match is not None else match
 
         for index in range(1, len(data)):
             if index == 2:
@@ -44,10 +45,19 @@ class ForwardTest():
             else:
                 self.trade[index] = data[index].string
 
-def getForwardState():
-    html = requests.get(URL)
+def getSoup():
+    html = requests.get(config.get("ggjn", "url"))
 
     soup = BeautifulSoup(html.text, "html.parser")
+    return soup
+
+def getEAName():
+    soup = getSoup()
+    span = soup.find_all("div", {"class": "flex mid product-name pb-10"})
+    return span[0].find_all("b")[1].string
+
+def getForwardState():
+    soup = getSoup()
     table = soup.find_all("table", {"class": "table table-striped w-full forward-table"})[0]
     rows = table.find_all("tr")
 
@@ -83,24 +93,41 @@ def getTweetMessage(state, positions, newUnsettledCount=0):
     for index, position in enumerate(positions):
         if state == 1 and index == newUnsettledCount:
             break
-        message += str(index + 1) + ":\n"
+        message += str(index + 1) + ":"
         if position.trade[1] is None:
             message += " 実績更新中もしくは逆指値注文中\n"
             continue
         message += " 約定日時:" + position.trade[0] + "\n"
-        message += " L/S:" + position.trade[2] + "\n"
-        message += " レート:" + position.trade[3] + "\n"
-        message += " 決済日時:" + position.trade[6] + "\n"
-        message += " 決済レート:" + position.trade[7] + "\n"
-        message += " 結果:" + position.trade[12] + "\n"
+        message += "   L/S:" + position.trade[2] + "\n"
+        message += "   レート:" + position.trade[3] + "\n"
+        message += "   決済日時:" + position.trade[6] + "\n"
+        message += "   決済レート:" + position.trade[7] + "\n"
+        message += "   結果:" + position.trade[12] + "\n"
     return message
 
+def authenticateTwitter():
+    consumerKey = config.get("consumer_key", "key")
+    consumerSecret = config.get("consumer_key", "secret")
+    accessToken = config.get("access_token", "token")
+    accessTokenSecret = config.get("access_token", "secret")
+    return OAuth1Session(consumerKey, consumerSecret,
+            accessToken, accessTokenSecret)
+
 def tweet(message):
-    print(message)
+    twitter = authenticateTwitter()
+    url = "https://api.twitter.com/1.1/statuses/update.json"
+    parameter = {"status" : message}
+    request = twitter.post(url, params = parameter)
+    if request.status_code == 200:
+        print(datetime.now(timezone("JST")) + " : TWEET SUCCESS")
+    else:
+        print(datetime.now(timezone("JST")) + "ERROR : %d", request.status_code)
 
 def job():
     global previousJobTime, numberOfPositions
 
+    # EA名を取得
+    name = getEAName()
     # 対象のURLの未決済のポジション数、L/S等を取得
     # 前回ジョブ実行時より新しい決済済みのポジションの損益を取得
     unsettledCount, settledCount, unsettledPosition, settledPosition = getForwardState()
@@ -108,27 +135,28 @@ def job():
     newUnsettledCount = sumOfTradeCount - numberOfPositions
     message = ""
 
+    # 決済済み情報が追加された場合
     if settledCount > 0:
-        # 決済済み情報が追加された場合
-        message += tweet(0, settledPosition)
+        message += getTweetMessage(0, settledPosition)
+        # 新しいポジション情報追加された場合
         if newUnsettledCount > 0:
-            # 新しいポジション情報追加された場合
-            message += tweet(1, unsettledPosition, newUnsettledCount)
+            message += getTweetMessage(1, unsettledPosition, newUnsettledCount)
     else:
+        # 新しいポジション情報追加された場合
         if newUnsettledCount > 0:
-            # 新しいポジション情報追加された場合
-            message += tweet(1, unsettledPosition, newUnsettledCount)
+            message += getTweetMessage(1, unsettledPosition, newUnsettledCount)
 
     if message != "":
-        tweet(message)
+        tweet("フォワード自動通知:" + name + "\n" + message)
 
     numberOfPositions = unsettledCount
 
-    # 現在時間更新
+    # 現在時間(UTC)更新
     now = datetime.now(timezone("UTC"))
     previousJobTime = str(now.month) + "/" + str(now.day) + " " + str(now.hour) + ":" + str(now.minute)
 
 if __name__ == "__main__":
+    job()
     schedule.every().minutes.do(job)
 
     while True:
