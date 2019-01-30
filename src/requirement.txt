@@ -1,0 +1,7 @@
+requests
+configparser
+requests_oauthlib
+beautifulsoup4
+pytz
+schedule
+regex
