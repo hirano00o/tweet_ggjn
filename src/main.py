@@ -147,7 +147,7 @@ def job():
             message += getTweetMessage(1, unsettledPosition, newUnsettledCount)
 
     if message != "":
-        tweet("フォワード自動通知:" + name + "\n" + message)
+        tweet("フォワード自動通知: #" + name.replace(" ", " #") + "\n" + message)
 
     numberOfPositions = unsettledCount
 
