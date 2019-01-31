@@ -89,13 +89,13 @@ def getForwardState():
 
 def getTweetMessage(state, positions, newUnsettledCount=0):
     new = ["決済", "注文"]
-    message = "フォワード新規" + new[state] + "更新情報\n"
+    message = "フォワード新規" + new[state] + "更新\n"
     for index, position in enumerate(positions):
         if state == 1 and index == newUnsettledCount:
             break
         message += str(index + 1) + ":"
         if position.trade[1] is None:
-            message += " 実績更新中もしくは逆指値注文中\n"
+            message += " 実績更新or逆指値注文中\n"
             continue
         message += " 約定日時:" + position.trade[0] + "\n"
         message += "   L/S:" + position.trade[2] + "\n"
@@ -116,12 +116,31 @@ def authenticateTwitter():
 def tweet(message):
     twitter = authenticateTwitter()
     url = "https://api.twitter.com/1.1/statuses/update.json"
-    parameter = {"status" : message}
-    request = twitter.post(url, params = parameter)
-    if request.status_code == 200:
-        print(datetime.now(timezone("JST")) + " : TWEET SUCCESS")
-    else:
-        print(datetime.now(timezone("JST")) + "ERROR : %d", request.status_code)
+    messageLength = 0
+    tweetMessages = []
+    headNumber = 0
+    tailNumber = 0
+    messages = re.split("\n[0-9]:", message)
+    for index, msg in enumerate(messages):
+        if index == 0:
+            messageLength += len(msg)
+        else:
+            messageLength = messageLength + len(msg) + 3
+
+        if len(message[headNumber:messageLength]) > 130:
+            tweetMessages.append(message[headNumber:tailNumber] + ">>続く")
+            headNumnber = messageLength + 1
+        tailNumber = messageLength
+    if headNumber < tailNumber:
+        tweetMessages.append(message[headNumber:tailNumber])
+
+    for tweetMessage in tweetMessages:
+        parameter = {"status" : tweetMessage}
+        request = twitter.post(url, params = parameter)
+        if request.status_code == 200:
+            print(datetime.now(timezone("JST")) + " : TWEET SUCCESS")
+        else:
+            print(datetime.now(timezone("JST")) + " : ERROR ", request.status_code, " ", request.text)
 
 def job():
     global previousJobTime, numberOfPositions
@@ -147,7 +166,7 @@ def job():
             message += getTweetMessage(1, unsettledPosition, newUnsettledCount)
 
     if message != "":
-        tweet("フォワード自動通知: #" + name.replace(" ", " #") + "\n" + message)
+        tweet("自動通知: #" + name.replace(" ", " #") + "\n" + message)
 
     numberOfPositions = unsettledCount
 
@@ -156,7 +175,6 @@ def job():
     previousJobTime = str(now.month) + "/" + str(now.day) + " " + str(now.hour) + ":" + str(now.minute)
 
 if __name__ == "__main__":
-    job()
     schedule.every().minutes.do(job)
 
     while True:
