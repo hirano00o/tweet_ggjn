@@ -46,7 +46,7 @@ class ForwardTest():
                 self.trade[index] = data[index].string
 
 def getSoup():
-    html = requests.get(config.get("ggjn", "url"))
+    html = requests.get(config.get("ggjn", "url"), timeout=60)
 
     soup = BeautifulSoup(html.text, "html.parser")
     return soup
@@ -138,9 +138,9 @@ def tweet(message):
         parameter = {"status" : tweetMessage}
         request = twitter.post(url, params = parameter)
         if request.status_code == 200:
-            print(datetime.now(timezone("JST")) + " : TWEET SUCCESS")
+            print(str(datetime.now(timezone("Asia/Tokyo"))) + " : TWEET SUCCESS")
         else:
-            print(datetime.now(timezone("JST")) + " : ERROR ", request.status_code, " ", request.text)
+            print(str(datetime.now(timezone("Asia/Tokyo"))) + " : ERROR " + str(request.status_code), " ", request.text)
 
 def job():
     global previousJobTime, numberOfPositions
